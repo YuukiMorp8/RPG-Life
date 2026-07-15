@@ -8,6 +8,7 @@
   import Attributes from './pages/Attributes.svelte';
   import { currentTab } from './lib/stores/game.js';
   import Analytics from './pages/Analytics.svelte';
+  import About from './pages/About.svelte';
 </script>
 
 <div class="app-container">
@@ -28,6 +29,8 @@
         <ProfileConfig />
       {:else if $currentTab === 'analytics'}
         <Analytics />
+    {:else if $currentTab === 'about'}
+      <About />
       {:else if $currentTab === 'diary'}
         <div class="glass-card" style="text-align: center; padding: 30px;">
           <div style="font-size: 40px;">🍽️</div>

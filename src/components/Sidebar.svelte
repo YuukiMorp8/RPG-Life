@@ -8,6 +8,7 @@
     { id: 'shop', icon: '🛒', label: 'Loja' },
     { id: 'profile', icon: '⚙️', label: 'Perfil' },
     { id: 'analytics', icon: '📊', label: 'Crônicas' },
+    { id: 'about', icon: 'ℹ️', label: 'APP' },
   ];
 </script>
 

@@ -4,8 +4,8 @@
   "description": "RPG de evolução pessoal - Missões, treinos e hábitos",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#080810",
-  "theme_color": "#0a0a14",
+  "background_color": "#09140e",
+  "theme_color": "#09140e",
   "orientation": "portrait",
   "icons": [
     {
