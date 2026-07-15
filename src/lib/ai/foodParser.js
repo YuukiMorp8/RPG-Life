@@ -1,4 +1,4 @@
-// foodParser.js - Versão Final com Supabase
+// foodParser.js - Versão Final com Supabase + Validação de Pesos
 import { FOODS_DB, FOOD_SYNONYMS } from '../db/foods.js';
 import { findFood, saveFood } from '../db/supabase.js';
 
@@ -22,6 +22,7 @@ const FOOD_EMOJIS = {
   'coca-cola': '🥤', 'coca cola': '🥤', 'refrigerante': '🥤',
   'miojo': '🍜', 'hambúrguer': '🍔', 'coxinha': '🍗',
   'melancia': '🍉', 'salada': '🥗', 'batata': '🥔',
+  'bisteca': '🥩', 'porco': '🥩', 'costela': '🥩',
 };
 
 function getFoodEmoji(name) {
@@ -46,7 +47,7 @@ const DEFAULT_MEASURES = {
   'mortadela': 'fatia', 'presunto': 'fatia', 'manteiga': 'colher',
   'batata': 'unidade', 'maçã': 'unidade', 'banana': 'unidade',
   'miojo': 'pacote', 'hambúrguer': 'unidade', 'coxinha': 'unidade',
-  'pizza': 'pedaço',
+  'pizza': 'pedaço', 'bisteca': 'unidade',
 };
 
 const INDUSTRIALIZED_FOODS = {
@@ -56,6 +57,29 @@ const INDUSTRIALIZED_FOODS = {
   'coca': { weight: 350, unit: 'lata 350ml' },
   'doritos': { weight: 84, unit: 'pacote pequeno' },
   'ruffles': { weight: 100, unit: 'pacote' },
+};
+
+// 📏 Limites de peso por medida
+const MEASURE_LIMITS = {
+  'colher': { min: 15, max: 40, default: 25 },
+  'garfo': { min: 25, max: 60, default: 40 },
+  'garfada': { min: 25, max: 60, default: 40 },
+  'concha': { min: 70, max: 120, default: 90 },
+  'fatia': { min: 30, max: 100, default: 60 },
+  'copo': { min: 150, max: 350, default: 200 },
+  'xicara': { min: 150, max: 250, default: 200 },
+  'xícara': { min: 150, max: 250, default: 200 },
+  'prato': { min: 150, max: 400, default: 250 },
+  'unidade': { min: 30, max: 250, default: 100 },
+  'pedaço': { min: 50, max: 200, default: 100 },
+  'pedaco': { min: 50, max: 200, default: 100 },
+  'bisteca': { min: 100, max: 200, default: 150 },
+  'filé': { min: 80, max: 200, default: 120 },
+  'file': { min: 80, max: 200, default: 120 },
+  'porção': { min: 50, max: 300, default: 100 },
+  'porcao': { min: 50, max: 300, default: 100 },
+  'lata': { min: 250, max: 400, default: 350 },
+  'pacote': { min: 50, max: 500, default: 85 },
 };
 
 function getDefaultMeasure(foodName) {
@@ -74,6 +98,29 @@ function getIndustrializedInfo(foodName) {
   return null;
 }
 
+function validateMeasureWeight(measure, weight) {
+  if (!measure) return weight;
+  
+  const cleanMeasure = normalize(measure).replace(/es$/, '').replace(/s$/, '');
+  
+  for (const [key, limits] of Object.entries(MEASURE_LIMITS)) {
+    if (cleanMeasure.includes(key) || key.includes(cleanMeasure)) {
+      if (weight < limits.min || weight > limits.max) {
+        console.log(`⚠️ Peso ajustado: ${measure} ${weight}g → ${limits.default}g`);
+        return limits.default;
+      }
+      return weight;
+    }
+  }
+  
+  if (weight < 5 || weight > 500) {
+    console.log(`⚠️ Peso suspeito: ${measure} ${weight}g → 100g`);
+    return 100;
+  }
+  
+  return weight;
+}
+
 // ============================================
 // 📚 UTILITÁRIOS
 // ============================================
@@ -82,6 +129,8 @@ function normalize(str) {
   return str.toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[-_/]/g, ' ')
+    .replace(/[^a-z0-9\s]/g, '')
     .trim();
 }
 
@@ -117,89 +166,80 @@ function persistLocalDB() {
 
 function extractFoodItems(text) {
   text = text.replace(/[""]/g, '');
-  
-  // 🔧 PASSO 1: Tratar "um/uma X e meio/meia" ANTES de converter números
+
   text = text.replace(/um\s+ovo\s+e\s+meio\b/gi, '1.5 ovo');
   text = text.replace(/dois\s+ovos\s+e\s+meio\b/gi, '2.5 ovos');
   text = text.replace(/uma\s+(\w+)\s+e\s+meia\b/gi, '1.5 $1');
   text = text.replace(/duas\s+(\w+)\s+e\s+meia\b/gi, '2.5 $1');
-  
-  // 🔧 PASSO 2: "meio/meia" no início → "0.5"
   text = text.replace(/^meio\s+/i, '0.5 ');
   text = text.replace(/^meia\s+/i, '0.5 ');
-  
-  // 🔧 PASSO 3: Converter números por extenso
+
   const numberWords = {
     'um': '1', 'uma': '1', 'dois': '2', 'duas': '2', 'três': '3', 'tres': '3',
     'quatro': '4', 'cinco': '5', 'seis': '6', 'sete': '7', 'oito': '8',
     'nove': '9', 'dez': '10'
   };
-  
+
   let processedText = ' ' + text + ' ';
   for (const [word, num] of Object.entries(numberWords)) {
     processedText = processedText.replace(new RegExp(`\\s${word}\\s`, 'gi'), ` ${num} `);
   }
   processedText = processedText.trim();
-  
-  // 🔧 PASSO 4: Tratar "X Y e meio/meia" (com número já convertido)
+
   processedText = processedText.replace(/(\d+)\s+(\w+)\s+e\s+meio\b/gi, '$1.5 $2');
   processedText = processedText.replace(/(\d+)\s+(\w+)\s+e\s+meia\b/gi, '$1.5 $2');
-  
-  // Remove palavras de contexto
+
   const contextWords = [
     'hoje', 'ontem', 'amanhã', 'tomei', 'comi', 'almocei', 'jantei', 'lanchei',
     'foram', 'foi', 'À tarde', 'à tarde', 'À noite', 'à noite', 'de manhã',
     'no almoço', 'no jantar', 'no café'
   ];
-  
+
   for (const word of contextWords) {
     processedText = processedText.replace(new RegExp(`\\b${word}\\b`, 'gi'), '');
   }
-  
+
   processedText = processedText.replace(/\s+/g, ' ').trim();
-  
-  // Divide
+
   const parts = processedText.split(/\s*,\s*|\s+e\s+|\.\s*/);
   const items = [];
-  
+
   for (const part of parts) {
     let str = part.trim();
     if (!str || str.length < 2) continue;
-    
+
     let quantity = 1;
     let directGrams = null;
     let directMl = null;
-    
+
     const gramsMatch = str.match(/^(\d+)\s*g\b/i);
     if (gramsMatch) {
       directGrams = parseInt(gramsMatch[1]);
       quantity = 1;
       str = str.replace(/^\d+\s*g\b\s*/i, '');
     }
-    
+
     const kgMatch = str.match(/^(\d+)\s*kg\b/i);
     if (kgMatch) {
       directGrams = parseInt(kgMatch[1]) * 1000;
       quantity = 1;
       str = str.replace(/^\d+\s*kg\b\s*/i, '');
     }
-    
+
     const mlMatch = str.match(/^(\d+)\s*ml\b/i);
     if (mlMatch) {
       directMl = parseInt(mlMatch[1]);
       quantity = 1;
       str = str.replace(/^\d+\s*ml\b\s*/i, '');
     }
-    
+
     if (!directGrams && !directMl) {
-      // Frações
       const fractionMatch = str.match(/^(\d+)\/(\d+)/);
       if (fractionMatch) {
         quantity = parseInt(fractionMatch[1]) / parseInt(fractionMatch[2]);
         str = str.replace(/^\d+\/\d+\s*/, '');
       }
-      
-      // Decimais (inclui 1.5, 0.5)
+
       if (quantity === 1) {
         const decimalMatch = str.match(/^(\d+)[.,](\d+)/);
         if (decimalMatch) {
@@ -207,8 +247,7 @@ function extractFoodItems(text) {
           str = str.replace(/^\d+[.,]\d+\s*/, '');
         }
       }
-      
-      // Inteiros
+
       if (quantity === 1) {
         const intMatch = str.match(/^(\d+)/);
         if (intMatch) {
@@ -217,7 +256,7 @@ function extractFoodItems(text) {
         }
       }
     }
-    
+
     const lowerStr = str.toLowerCase();
     if (lowerStr.startsWith('bastante ') || lowerStr.startsWith('muito ')) {
       if (quantity === 1 && !directGrams && !directMl) quantity = 1.8;
@@ -227,23 +266,22 @@ function extractFoodItems(text) {
       if (quantity === 1 && !directGrams && !directMl) quantity = 0.5;
       str = str.replace(/^(pouco|um pouco)\s+/i, '');
     }
-    
+
     str = str.replace(/^(À tarde|à tarde|À noite|à noite|de manhã)\s*/i, '');
-    
+
     const words = str.split(' ');
-    
+
     const removeWords = ['comi', 'almocei', 'jantei', 'tomei', 'bebi', 'lanchei',
                          'só', 'apenas', 'hoje', 'ontem', 'depois', 'então', 'no', 'na',
                          'foram', 'foi', 'tarde', 'noite', 'manhã'];
     while (words.length > 0 && removeWords.includes(words[0].toLowerCase())) {
       words.shift();
     }
-    
-    // 🔧 Remove "com" do início (sobra do split)
+
     if (words[0]?.toLowerCase() === 'com') {
       words.shift();
     }
-    
+
     let measure = null;
     const deIndex = words.indexOf('de');
     if (deIndex > 0 && !directGrams && !directMl) {
@@ -251,23 +289,23 @@ function extractFoodItems(text) {
       measure = measure.replace(/es$/, '').replace(/s$/, '');
       words.splice(0, deIndex + 1);
     }
-    
+
     const compoundConnectors = ['arroz com feijão', 'café com leite', 'pão com ovo',
                                  'macarrão com queijo', 'cuscuz com leite'];
-    
+
     const fullName = words.join(' ').trim();
     const isCompound = compoundConnectors.some(c => fullName.includes(c));
-    
+
     if (!isCompound) {
       const comIndex = words.indexOf('com');
       if (comIndex > 0) {
         const mainFood = words.slice(0, comIndex).join(' ');
         const extras = words.slice(comIndex + 1).join(' ').split(/\s+e\s+/);
-        
+
         if (mainFood && mainFood.length > 0) {
           items.push({ name: mainFood, quantity, measure, directGrams, directMl });
         }
-        
+
         for (const extra of extras) {
           const extraTrimmed = extra.trim();
           if (extraTrimmed && extraTrimmed.length > 0) {
@@ -277,13 +315,13 @@ function extractFoodItems(text) {
         continue;
       }
     }
-    
+
     if (fullName && fullName.length > 0) {
       items.push({ name: fullName, quantity, measure, directGrams, directMl });
       console.log(`   📐 "${part.trim()}" → ${quantity} ${measure || (directGrams ? directGrams + 'g' : directMl ? directMl + 'ml' : 'porção')} de ${fullName}`);
     }
   }
-  
+
   return items;
 }
 
@@ -293,7 +331,7 @@ function extractFoodItems(text) {
 
 async function searchAndSave(foodName, measure, directGrams, directMl) {
   let query;
-  
+
   if (directGrams) {
     query = `${directGrams}g de ${foodName}`;
   } else if (directMl) {
@@ -301,9 +339,9 @@ async function searchAndSave(foodName, measure, directGrams, directMl) {
   } else {
     query = `1 ${measure} de ${foodName}`;
   }
-  
+
   console.log(`🔍 Buscando IA: "${query}"`);
-  
+
   try {
     const response = await fetch(PERPLEXITY_API_URL, {
       method: 'POST',
@@ -347,12 +385,15 @@ REGRAS:
     const data = await response.json();
     const content = data.choices[0].message.content;
     console.log('📝 IA:', content.substring(0, 150));
-    
+
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return null;
-    
+
     const info = JSON.parse(jsonMatch[0]);
-    
+
+    // 🆕 Valida o peso da medida
+    const validatedWeight = validateMeasureWeight(measure, info.measure_weight_g || 100);
+
     const key = normalize(info.name);
     FOODS_DB[key] = {
       name: info.name,
@@ -362,16 +403,16 @@ REGRAS:
       carbs: info.carbs_100g || 0,
       fat: info.fat_100g || 0,
       fiber: info.fiber_100g || 0,
-      measure_weight_g: info.measure_weight_g || 100,
+      measure_weight_g: validatedWeight,
       emoji: getFoodEmoji(info.name),
       source_name: info.source_name || 'Web',
       source_url: info.source_url || '#',
     };
-    
+
     persistLocalDB();
-    console.log(`✅ Salvo local: ${info.name} | ${info.measure_weight_g}g | ${info.kcal_100g} kcal/100g`);
+    console.log(`✅ Salvo local: ${info.name} | ${validatedWeight}g | ${info.kcal_100g} kcal/100g`);
     return FOODS_DB[key];
-    
+
   } catch (e) {
     console.log('❌ Erro IA:', e.message);
     return null;
@@ -384,7 +425,7 @@ REGRAS:
 
 export async function parseFood(text) {
   if (!text || text.trim().length === 0) return [];
-  
+
   const cacheKey = normalize(text);
   if (memoryCache.has(cacheKey)) {
     console.log('📦 Cache memória');
@@ -393,20 +434,18 @@ export async function parseFood(text) {
 
   try {
     console.log('📝 Texto:', text);
-    
+
     const foodItems = extractFoodItems(text);
     if (foodItems.length === 0) return [];
-    
+
     const results = [];
-    
+
     for (const item of foodItems) {
       const measure = item.measure || getDefaultMeasure(item.name);
-      
-      // 1. localStorage (instantâneo)
+
       let food = findInLocalDB(item.name);
       if (food) console.log(`💾 Local: ${item.name}`);
-      
-      // 2. Supabase (banco global)
+
       if (!food) {
         const remote = await findFood(item.name);
         if (remote) {
@@ -416,18 +455,17 @@ export async function parseFood(text) {
           console.log(`🌐 Supabase: ${item.name}`);
         }
       }
-      
-      // 3. IA (último recurso)
+
       if (!food) {
         food = await searchAndSave(item.name, measure, item.directGrams, item.directMl);
-        
+
         if (food) {
           saveFood(food).then(ok => {
             if (ok) console.log(`☁️ Supabase salvo: ${food.name}`);
           });
         }
       }
-      
+
       if (food) {
         let totalGrams;
         if (item.directGrams) {
@@ -442,9 +480,9 @@ export async function parseFood(text) {
             totalGrams = item.quantity * (food.measure_weight_g || 100);
           }
         }
-        
+
         const factor = totalGrams / 100;
-        
+
         results.push({
           name: food.name,
           quantity: item.quantity,
@@ -462,11 +500,11 @@ export async function parseFood(text) {
         });
       }
     }
-    
+
     if (results.length === 0) return [];
-    
+
     memoryCache.set(cacheKey, results);
-    
+
     console.log('━━━━━━━━━━━━━━━━━━━━━━');
     results.forEach(item => {
       console.log(`${item.emoji} ${item.name} ×${item.quantity} ${item.unit} (${item.totalGrams}g)`);
@@ -474,9 +512,9 @@ export async function parseFood(text) {
     });
     console.log(`📊 Total: ${results.reduce((s, i) => s + i.kcal, 0)} kcal`);
     console.log('━━━━━━━━━━━━━━━━━━━━━━');
-    
+
     return results;
-    
+
   } catch (e) {
     console.log('❌ Erro:', e.message);
     return [];
