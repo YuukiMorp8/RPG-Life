@@ -1,4 +1,4 @@
-import { writable, derived } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
 
 // ============================================
 // ESTADO DO JOGO
@@ -31,7 +31,6 @@ export const xpProgress = derived(totalXP, ($totalXP) => {
   return Math.round(($totalXP % XP_PER_LEVEL) / XP_PER_LEVEL * 100);
 });
 
-// XP para próximo nível
 export const xpToNext = derived(totalXP, ($totalXP) => {
   const XP_PER_LEVEL = 100;
   return XP_PER_LEVEL - ($totalXP % XP_PER_LEVEL);
@@ -60,7 +59,6 @@ export const LEVEL_THRESHOLDS = [
 
 let lastLevel = 1;
 
-// Detectar Level Up
 totalXP.subscribe(xp => {
   let newLevel = 1;
   let newTitle = 'Iniciante';
@@ -75,12 +73,10 @@ totalXP.subscribe(xp => {
   if (newLevel > lastLevel) {
     lastLevel = newLevel;
     console.log(`🎉 LEVEL UP! ${newTitle} (Nível ${newLevel})!`);
-    // Guardar no localStorage para mostrar toast
     localStorage.setItem('pendingLevelUp', JSON.stringify({ level: newLevel, title: newTitle }));
   }
 });
 
-// Verificar se há level up pendente
 export function checkLevelUp() {
   const pending = localStorage.getItem('pendingLevelUp');
   if (pending) {
@@ -91,7 +87,6 @@ export function checkLevelUp() {
   return null;
 }
 
-// Intensidades bloqueadas
 export const isIntensaUnlocked = derived(playerLevel, ($level) => $level >= 5);
 export const isAtletaUnlocked = derived(playerLevel, ($level) => $level >= 10);
 
@@ -129,6 +124,58 @@ export function updateStreak(days) {
 }
 
 // ============================================
+// AUTO-SAVE (salva automaticamente)
+// ============================================
+
+let saveTimeout;
+
+function autoSave() {
+  clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(() => {
+    const today = getToday();
+    const data = {
+      totalXP: get(totalXP),
+      availablePoints: get(availablePoints),
+      totalEarned: get(totalEarned),
+      totalSpent: get(totalSpent),
+      streakDays: get(streakDays),
+      maxStreak: get(maxStreak),
+      completedMissions: { [today]: get(completedToday) },
+      freeMissions: { [today]: get(freeMissionsToday) },
+      missionMultiplier: get(missionMultiplier),
+    };
+    localStorage.setItem('lifeRpgStateV4', JSON.stringify(data));
+    console.log('💾 Auto-salvo!');
+  }, 500);
+}
+
+// Observar mudanças e salvar
+totalXP.subscribe(autoSave);
+availablePoints.subscribe(autoSave);
+completedToday.subscribe(autoSave);
+freeMissionsToday.subscribe(autoSave);
+streakDays.subscribe(autoSave);
+
+// Salvar antes de sair da página
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    const today = getToday();
+    const data = {
+      totalXP: get(totalXP),
+      availablePoints: get(availablePoints),
+      totalEarned: get(totalEarned),
+      totalSpent: get(totalSpent),
+      streakDays: get(streakDays),
+      maxStreak: get(maxStreak),
+      completedMissions: { [today]: get(completedToday) },
+      freeMissions: { [today]: get(freeMissionsToday) },
+      missionMultiplier: get(missionMultiplier),
+    };
+    localStorage.setItem('lifeRpgStateV4', JSON.stringify(data));
+  });
+}
+
+// ============================================
 // LOCAL STORAGE
 // ============================================
 
@@ -149,29 +196,15 @@ export function loadGame() {
     completedToday.set(data.completedMissions?.[today] || []);
     freeMissionsToday.set(data.freeMissions?.[today] || {});
     
-    // Inicializar lastLevel
     const xp = data.totalXP || 0;
     for (const threshold of LEVEL_THRESHOLDS) {
       if (xp >= threshold.xp) lastLevel = threshold.level;
     }
+    
+    console.log('💾 Jogo carregado!');
   } catch (e) {
     console.error('Erro ao carregar:', e);
   }
-}
-
-export function saveGame(state) {
-  const today = getToday();
-  const data = {
-    totalXP: state.totalXP,
-    availablePoints: state.availablePoints,
-    totalEarned: state.totalEarned,
-    totalSpent: state.totalSpent,
-    streakDays: state.streakDays,
-    maxStreak: state.maxStreak,
-    completedMissions: { [today]: state.completedToday },
-    freeMissions: { [today]: state.freeMissionsToday },
-  };
-  localStorage.setItem('lifeRpgStateV4', JSON.stringify(data));
 }
 
 // ============================================
@@ -187,3 +220,11 @@ export function getLevelName(level) {
   const names = ['Iniciante', 'Aprendiz', 'Guerreiro', 'Veterano', 'Mestre', 'Lenda', 'Herói', 'Deus'];
   return names[Math.min(level - 1, names.length - 1)];
 }
+
+// ============================================
+// INICIALIZAR
+// ============================================
+
+// Carregar dados salvos ao iniciar
+loadGame();
+currentTab.set('dashboard');

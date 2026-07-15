@@ -6,9 +6,15 @@
   import Shop from './pages/Shop.svelte';
   import ProfileConfig from './pages/ProfileConfig.svelte';
   import Attributes from './pages/Attributes.svelte';
-  import { currentTab } from './lib/stores/game.js';
   import Analytics from './pages/Analytics.svelte';
   import About from './pages/About.svelte';
+  import { currentTab } from './lib/stores/game.js';
+  import { onMount } from 'svelte';
+  
+  onMount(() => {
+    console.log('⚔️ Life RPG iniciado!');
+    console.log('💾 Dados carregados automaticamente');
+  });
 </script>
 
 <div class="app-container">
@@ -29,17 +35,17 @@
         <ProfileConfig />
       {:else if $currentTab === 'analytics'}
         <Analytics />
-    {:else if $currentTab === 'about'}
-      <About />
+      {:else if $currentTab === 'about'}
+        <About />
       {:else if $currentTab === 'diary'}
         <div class="glass-card" style="text-align: center; padding: 30px;">
           <div style="font-size: 40px;">🍽️</div>
-          <div style="color: #686880; margin: 8px 0; font-size: 14px;">Diário em breve...</div>
+          <div style="color: var(--text-muted); margin: 8px 0; font-size: 14px;">Diário em breve...</div>
         </div>
       {:else}
         <div class="glass-card" style="text-align: center; padding: 30px;">
           <div style="font-size: 40px;">📦</div>
-          <div style="color: #686880; margin: 8px 0; font-size: 14px;">Em breve...</div>
+          <div style="color: var(--text-muted); margin: 8px 0; font-size: 14px;">Em breve...</div>
         </div>
       {/if}
     </div>
